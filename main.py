@@ -91,13 +91,16 @@ if __name__ == '__main__':
 
             blur_img = torch.rot90(blur_img, dims=[2, 3])
 
+            # Measure GPU memory usage
             mem_usage = torch.cuda.memory_allocated() / 1024 / 1024
             mem_adder(mem_usage)
 
+            # RGB to LAB
             blur_lab = rgb2lab(blur_img)
 
             starter.record()
 
+            # LAB to sharp grayscale(L)
             gray_sharp = deblur_model(blur_lab)
 
             ender.record()
@@ -106,6 +109,7 @@ if __name__ == '__main__':
 
             starter.record()
 
+            # Construct color hint
             hint = get_color_hint_evenly_faster(blur_lab, patch_size=16)
 
             ender.record()
@@ -114,6 +118,7 @@ if __name__ == '__main__':
 
             starter.record()
 
+            # colorization
             pred_ab = color_model(gray_sharp, hint)
             pred_img = lab2rgb(torch.cat([gray_sharp, pred_ab], dim=1))
 
