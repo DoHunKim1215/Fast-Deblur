@@ -3,8 +3,6 @@ import os
 
 import numpy
 import torch
-from skimage.metrics import peak_signal_noise_ratio
-from skimage.metrics import structural_similarity as ssim
 from torch.backends import cudnn
 from torchvision.transforms import functional as F
 
@@ -16,6 +14,11 @@ from utils.color_to_hint import get_color_hint_evenly_faster
 from utils.converter import rgb2lab, lab2rgb
 
 
+def make_dir(path: str):
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 
@@ -24,9 +27,11 @@ def get_args() -> argparse.Namespace:
                         default='models\\colorization_best.pkl')
     parser.add_argument('--deblur_model', type=str,
                         default='models\\deblur_best.pkl')
-    parser.add_argument('--data_dir', type=str, default='dataset\\GoPro\\test')
+    parser.add_argument('--data_dir', type=str, default='dataset\\images')
     parser.add_argument('--result_dir', type=str, default='results\\images')
     parser.add_argument('--save_image', type=bool, default=True, choices=[True, False])
+
+    make_dir('results\\images')
 
     args = parser.parse_args()
 
@@ -77,18 +82,14 @@ if __name__ == '__main__':
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
 
     with torch.no_grad():
-        psnr_adder = Adder()
-        ssim_adder = Adder()
         mem_adder = Adder()
 
         # Main Evaluation
         for iter_idx, data in enumerate(dataloader):
-            blur_img, sharp_img, name = data
+            blur_img, name = data
             blur_img = blur_img.to(device)
-            sharp_img = sharp_img.to(device)
 
-            blur_img = blur_img[:, :, :256, :256]
-            sharp_img = sharp_img[:, :, :256, :256]
+            blur_img = torch.rot90(blur_img, dims=[2, 3])
 
             mem_usage = torch.cuda.memory_allocated() / 1024 / 1024
             mem_adder(mem_usage)
@@ -129,9 +130,7 @@ if __name__ == '__main__':
             adder3(elapsed3)
 
             pred_clip = torch.clamp(pred_img, 0, 1)
-
             pred_numpy: numpy.ndarray = pred_clip.squeeze(0).cpu().numpy()
-            label_numpy: numpy.ndarray = sharp_img.squeeze(0).cpu().numpy()
 
             if args.save_image:
                 save_name = os.path.join(args.result_dir, name[0])
@@ -139,20 +138,10 @@ if __name__ == '__main__':
                 pred = F.to_pil_image(pred_clip.squeeze(0).cpu(), 'RGB')
                 pred.save(save_name)
 
-            psnr = peak_signal_noise_ratio(pred_numpy, label_numpy, data_range=1)
-
-            pred_numpy = pred_numpy.transpose((1, 2, 0))
-            label_numpy = label_numpy.transpose((1, 2, 0))
-
-            ssim_, _ = ssim(pred_numpy, label_numpy, channel_axis=-1, full=True, data_range=1.0)
-            psnr_adder(psnr)
-            ssim_adder(ssim_)
-            print('%d iter PSNR: %.2f SSIM: %.8f time: %f mem: %f' % (
-                iter_idx + 1, psnr, ssim_, elapsed1 + elapsed2 + elapsed3, mem_usage))
+            print('%d iter time: %f mem: %f' % (
+                iter_idx + 1, elapsed1 + elapsed2 + elapsed3, mem_usage))
 
         print('==========================================================')
-        print('The average PSNR is %.2f dB' % (psnr_adder.average()))
-        print('The average SSIM is %.8f' % (ssim_adder.average()))
         print('The average mem is %f' % (mem_adder.average()))
         print("Average time1: %f" % adder1.average())
         print("Average time2: %f" % adder2.average())

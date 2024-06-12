@@ -17,6 +17,7 @@ thop = "*"
 pillow = "*"
 scikit-image = "*"
 einops = "*"
+opencv-python = "*"
 
 [dev-packages]
 
